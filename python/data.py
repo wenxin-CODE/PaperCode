@@ -12,6 +12,7 @@
 # plt.show()
 
 # ============从csv文件中随机选择一些行另存为一个csv文件=================
+
 import random
 from random import randint
 
@@ -30,9 +31,9 @@ from random import randint
 
 # 两个csv文件对比删除重复的
 import pandas as pd
-a = pd.read_csv("features.csv")
-b = pd.read_csv("features_Random.csv")
-print(a not in b)
+# a = pd.read_csv("features.csv")
+# b = pd.read_csv("features_Random.csv")
+# print(a not in b)
 # # print(a)
 # num = 0
 # # dataframe逐行读取数据并输出
@@ -46,3 +47,28 @@ print(a not in b)
 #         num=num+1
 # print(num)
 #
+
+#==============生成数据================================
+
+#先用random生成随机数据，然后利用一个函数得到对应random的评分，把这些数据分成训练集&测试集，看算法性能
+# 生成两个数组，第一个数组中的每一个元素对第二个数组的所有元素做运算
+
+# 还有个空行问题
+from numpy.matlib import rand
+import numpy as np
+import pandas as pd
+import csv
+
+# a = rand(5000)
+# b = rand(5000)
+# c = a*a.T+2.5*a+21
+a = [1,2,3]
+b = [4,5,6]
+c = [7,8,9]
+
+# dataframe = pd.DataFrame({"item_id":a,"score":b})
+# dataframe.to_csv("features1.csv",index=False)
+with open("features1.csv","w") as csvfile:
+    write = csv.writer(csvfile)
+    write.writerow(["user_id","item_id","score"])
+    write.writerows(np.array([a,b,c]).T)
