@@ -61,14 +61,22 @@ import csv
 
 # a = rand(5000)
 # b = rand(5000)
-# c = a*a.T+2.5*a+21
-a = [1,2,3]
-b = [4,5,6]
-c = [7,8,9]
+# c = a*b.T+2.5*a+21
+a = list(range(1,61,1))
+print(a[1])
+b = list(range(1,100,1))
+c = []
+for i in range(60):
+    c = c + [a[1]*b+5*b+24]
+print(a,b,c)
+# a = [1,2,3]
+# b = [4,5,6]
+# c = [7,8,9]
 
 # dataframe = pd.DataFrame({"item_id":a,"score":b})
 # dataframe.to_csv("features1.csv",index=False)
-with open("features1.csv","w") as csvfile:
-    write = csv.writer(csvfile)
-    write.writerow(["user_id","item_id","score"])
-    write.writerows(np.array([a,b,c]).T)
+# with open("features1.csv","w",newline="") as csvfile:
+#     # "w"表示写入，newline=""表示没有空行
+#     write = csv.writer(csvfile)
+#     write.writerow(["user_id","item_id","score"])
+#     write.writerows(np.array([a,b,c]).T)
