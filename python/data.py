@@ -1,6 +1,9 @@
-# import pandas as pd
-# import numpy as np
-# import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import random
+from random import randint
+import csv
 #
 # data1 = pd.read_excel("E:\\RNA链路预测\\0CircR2Disease--雷\\0CircR2Disease--雷\\outputfu4-1.xlsx").values
 # #.values将DataFrame转化为矩阵
@@ -13,8 +16,6 @@
 
 # ============从csv文件中随机选择一些行另存为一个csv文件=================
 
-import random
-from random import randint
 
 # oldf = open('features.csv', 'r', encoding='UTF-8')
 # newf = open('features_Random.csv', 'w', encoding='UTF-8')
@@ -30,7 +31,7 @@ from random import randint
 # newf.close()
 
 # 两个csv文件对比删除重复的
-import pandas as pd
+
 # a = pd.read_csv("features.csv")
 # b = pd.read_csv("features_Random.csv")
 # print(a not in b)
@@ -54,21 +55,17 @@ import pandas as pd
 # 生成两个数组，第一个数组中的每一个元素对第二个数组的所有元素做运算
 
 # 还有个空行问题
-from numpy.matlib import rand
-import numpy as np
-import pandas as pd
-import csv
 
 # a = rand(5000)
 # b = rand(5000)
 # c = a*b.T+2.5*a+21
-a = list(range(1,61,1))
-print(a[1])
-b = list(range(1,100,1))
-c = []
-for i in range(60):
-    c = c + [a[1]*b+5*b+24]
-print(a,b,c)
+# a = list(range(1,61,1))
+# print(a[1])
+# b = list(range(1,100,1))
+# c = []
+# for i in range(60):
+#     c = c + [a[1]*b+5*b+24]
+# print(a,b,c)
 # a = [1,2,3]
 # b = [4,5,6]
 # c = [7,8,9]
@@ -80,3 +77,9 @@ print(a,b,c)
 #     write = csv.writer(csvfile)
 #     write.writerow(["user_id","item_id","score"])
 #     write.writerows(np.array([a,b,c]).T)
+
+
+# =================从我找到的数据里筛选原数据里出现过的RNA====================
+
+data1 = pd.read_csv("features.csv")
+print(data1.values[0:,0])
