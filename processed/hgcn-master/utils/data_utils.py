@@ -238,7 +238,7 @@ def load_data_m():
             object_to_idx[n2] = j
             idx_counter += 1
         edges.append((i, j))
-    data = pd.read_csv(r'G:\python\processed\hgcn-master\data\twitch\features.csv',
+    data = pd.read_csv(r'F:\python\PaperCode\processed\hgcn-master\data\twitch\features.csv',
                        encoding="utf8",
                        sep=",",
                        dtype={"switch": np.int32})
@@ -280,7 +280,7 @@ def load_data_m1():
             object_to_idx[n2] = j
             idx_counter += 1
         edges.append((i, j))
-    data = pd.read_csv(r'G:\python\processed\hgcn-master\data\mydata\features.csv',
+    data = pd.read_csv(r'F:\python\PaperCode\processed\hgcn-master\data\mydata\features.csv',
                        encoding="utf8",
                        sep=",",
                        dtype={"switch": np.int32})

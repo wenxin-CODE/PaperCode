@@ -29,7 +29,8 @@ We set a seed here to steadily reveal better performance of ARGA
 '''
 seed = 7
 np.random.seed(seed)
-tf.set_random_seed(seed)
+# tf.set_random_seed(seed)
+tf.compat.v1.set_random_seed(seed)
 
 def get_settings(dataname, model, task):
     if dataname != 'facebook' and dataname != 'pubmed' and dataname != 'twitch' :
