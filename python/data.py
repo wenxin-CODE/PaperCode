@@ -86,31 +86,34 @@ import csv
 
 # ====================画柱状图比较=======================
 
-import numpy as np
-import matplotlib.pyplot as plt
+# import numpy as np
+# import matplotlib.pyplot as plt
+#
+# xiabiao = ['ARGA','GIC','HGCN','Algorithm of this paper']
+# ind = [x for x, _ in enumerate(xiabiao)]
+#
+# #准备数据
+# data = [
+#     [17.22,10.53,84.49,5.77],
+#     [50,50,66.67,74.84]
+# ]
+# X = np.arange(4)
+# # fig = plt.figure()
+# #添加子图区域
+# # ax = fig.add_axes([0,0,1,1])
+# #绘制柱状图
+# plt.bar(X+0.00, data[0], width=0.25, label='time',color = 'b')
+# plt.bar(X+0.25, data[1], width=0.25, label='F1',color = 'g')
+#
+# plt.xticks(ind, xiabiao)
+# plt.ylabel("Value")
+# plt.xlabel("Algorithms")
+# plt.legend()
+# plt.title("Algorithm performance comparison")
+# plt.show()
 
-xiabiao = ['ARGA','GIC','HGCN','Algorithm of this paper']
-ind = [x for x, _ in enumerate(xiabiao)]
-
-#准备数据
-data = [
-    [17.22,10.53,84.49,5.77],
-    [50,50,66.67,74.84]
-]
-X = np.arange(4)
-# fig = plt.figure()
-#添加子图区域
-# ax = fig.add_axes([0,0,1,1])
-#绘制柱状图
-plt.bar(X+0.00, data[0], width=0.25, label='time',color = 'b')
-plt.bar(X+0.25, data[1], width=0.25, label='F1',color = 'g')
-
-plt.xticks(ind, xiabiao)
-plt.ylabel("Value")
-plt.xlabel("Algorithms")
-plt.legend()
-plt.title("Algorithm performance comparison")
-plt.show()
+# ==========================================================
+print()
 
 
 

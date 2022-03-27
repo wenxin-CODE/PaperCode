@@ -48,6 +48,7 @@ def get_roc_score(edges_pos, edges_neg, embeddings, adj_sparse):
     preds_all[preds_all < 0.5] = 0#小于0.5的设为0
     f1=f1_score(labels_all, preds_all)
     accuracy = metrics.accuracy_score(labels_all, preds_all)
+    print(roc_score, ap_score,accuracy,f1)
     return roc_score, accuracy,f1
 
 
