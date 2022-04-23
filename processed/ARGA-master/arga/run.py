@@ -16,4 +16,3 @@ else:
     runner = Link_pred_Runner(settings)
 
 runner.erun()
-

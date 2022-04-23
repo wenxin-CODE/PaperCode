@@ -112,11 +112,22 @@ import csv
 # plt.title("Algorithm performance comparison")
 # plt.show()
 
-# ==========================================================
-print()
+# ==============================excel变feat文件，手动删除feat文件的第一行============================
 
+# data_new = pd.read_excel("F:\\python\\PaperCode\\outputfu_4-1.xlsx")
+# # print(data_new)
+# data_new.drop(['exo_circ_ID','CircRNA'], axis = 1, inplace = True)
+# data_new.to_csv('F:\\python\\PaperCode\\processed\\ARGA-master\\data\\facebook\\fenci_result.txt',sep='\t',index=True)
+# # print(data_new)
 
-
+# ===============================================================================
+data_new = pd.read_excel("F:\\python\\PaperCode\\outputfu_4-1.xlsx")
+# print(data_new)
+data_new.drop(['exo_circ_ID','CircRNA'], axis = 1, inplace = True)
+# print(data_new)
+zero_num = (data_new == 0).astype(int).sum(axis=1)
+pd.options.display.max_rows = 300#显示300行
+print(zero_num)
 
 
 

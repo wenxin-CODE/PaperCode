@@ -218,7 +218,8 @@ for m in range(1):
                 embs = embs / embs.norm(dim=1)[:, None]
                 
                 sc_roc, acc ,f1= get_roc_score(test_edges, test_edges_false, embs.cpu().detach().numpy(), adj_sparse)
-                #print(beta, K, alpha, sc_roc, sc_ap,flush=True)
-                #print('Dataset',args.dataset)
+                # print(beta, K, alpha, sc_roc, sc_ap,flush=True)
+                print(beta, K, alpha, sc_roc,  flush=True)
+                print('Dataset',args.dataset)
                 print('alpha, beta, K:',alpha,beta,K)
                 print('AUC', sc_roc, 'acc', acc,'f1',f1)
