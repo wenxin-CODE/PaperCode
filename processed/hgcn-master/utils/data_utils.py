@@ -221,7 +221,7 @@ def load_data_m():
     edges = []
     dataset_str='twitch'
     data_path="./data/twitch/"
-    with open(os.path.join(data_path, "edges.csv".format(dataset_str)), 'r') as f:
+    with open(os.path.join(data_path, "edges1.csv".format(dataset_str)), 'r') as f:
         all_edges = f.readlines()
     for line in all_edges:
         n1, n2 = line.rstrip().split(',')
@@ -238,7 +238,7 @@ def load_data_m():
             object_to_idx[n2] = j
             idx_counter += 1
         edges.append((i, j))
-    data = pd.read_csv(r'F:\python\PaperCode\processed\hgcn-master\data\twitch\features.csv',
+    data = pd.read_csv(r'F:\python\PaperCode\processed\hgcn-master\data\twitch\features1.csv',
                        encoding="utf8",
                        sep=",",
                        dtype={"switch": np.int32})

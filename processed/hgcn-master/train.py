@@ -15,7 +15,7 @@ from config import parser
 from models.base_models import NCModel, LPModel,RECModel
 from utils.data_utils import load_data, load_data1
 from utils.train_utils import get_dir_name, format_metrics
-import colorlog
+# import colorlog
 import logging
 
 def train(args):
