@@ -48,6 +48,7 @@ def get_roc_score(edges_pos, edges_neg, embeddings, adj_sparse):
     preds_all[preds_all < 0.5] = 0#小于0.5的设为0
     f1=f1_score(labels_all, preds_all)
     accuracy = metrics.accuracy_score(labels_all, preds_all)
+    print(roc_score, ap_score,accuracy,f1)
     return roc_score, accuracy,f1
 
 
@@ -217,7 +218,8 @@ for m in range(1):
                 embs = embs / embs.norm(dim=1)[:, None]
                 
                 sc_roc, acc ,f1= get_roc_score(test_edges, test_edges_false, embs.cpu().detach().numpy(), adj_sparse)
-                #print(beta, K, alpha, sc_roc, sc_ap,flush=True)
-                #print('Dataset',args.dataset)
+                # print(beta, K, alpha, sc_roc, sc_ap,flush=True)
+                print(beta, K, alpha, sc_roc,  flush=True)
+                print('Dataset',args.dataset)
                 print('alpha, beta, K:',alpha,beta,K)
                 print('AUC', sc_roc, 'acc', acc,'f1',f1)

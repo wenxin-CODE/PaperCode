@@ -170,7 +170,7 @@ def load_datam(path="../GIC/data/facebook/", dataset="facebook"):
 def load_datam1(path="../GIC/data/facebook/", dataset="facebook"):
     """Load citation network dataset (cora only for now)"""
     print('Loading {} dataset...'.format(dataset))
-    idx_features_labels = np.genfromtxt("{}2.feat".format(path, dataset),
+    idx_features_labels = np.genfromtxt("{}2_.feat".format(path, dataset),
                                         dtype=np.dtype(str))#读取数据
     print(idx_features_labels.shape)
     features1 = sp.csr_matrix(idx_features_labels[:,1:-1], dtype=np.float32)#第一步处理--去掉矩阵的第一列，并将矩阵转化为邻接表
@@ -179,7 +179,7 @@ def load_datam1(path="../GIC/data/facebook/", dataset="facebook"):
     idx = np.array(idx_features_labels[:, 0], dtype=np.float32)#节点id--就是前面去掉的第一列所有元素
     idx_map = {j: i for i, j in enumerate(idx)}#节点对应字典--把上面的idx变成字典896: 0,idx是键
     # print(idx_map)
-    edges_unordered = np.genfromtxt("{}1.edges".format(path, dataset),
+    edges_unordered = np.genfromtxt("{}1_.edges".format(path, dataset),
                                     dtype=np.int32)#直接把107.edges变成 n行2列 的二维矩阵
     # print(edges_unordered)
     # print(list(map(idx_map.get, edges_unordered.flatten())))

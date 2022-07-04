@@ -81,5 +81,55 @@ import csv
 
 # =================从我找到的数据里筛选原数据里出现过的RNA====================
 
-data1 = pd.read_csv("features.csv")
-print(data1.values[0:,0])
+# data1 = pd.read_csv("features.csv")
+# print(data1.values[0:,0])
+
+# ====================画柱状图比较=======================
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+xiabiao = ['ARGA','GIC','HGCN','Algorithm of this paper']
+ind = [x for x, _ in enumerate(xiabiao)]
+
+#准备数据
+data = [
+    [17.22,10.53,87,5.77],
+    [50,50,36.78,71.8]
+]
+X = np.arange(4)
+# fig = plt.figure()
+#添加子图区域
+# ax = fig.add_axes([0,0,1,1])
+#绘制柱状图
+plt.bar(X+0.00, data[0], width=0.25, label='time',color = 'b')
+plt.bar(X+0.25, data[1], width=0.25, label='F1',color = 'g')
+
+plt.xticks(ind, xiabiao)
+plt.ylabel("Value")
+plt.xlabel("Algorithms")
+plt.legend()
+plt.title("Algorithm performance comparison")
+plt.show()
+
+# ==============================excel变feat文件，手动删除feat文件的第一行============================
+
+# data_new = pd.read_excel("F:\\python\\PaperCode\\outputfu_4-1.xlsx")
+# # print(data_new)
+# data_new.drop(['exo_circ_ID','CircRNA'], axis = 1, inplace = True)
+# data_new.to_csv('F:\\python\\PaperCode\\processed\\ARGA-master\\data\\facebook\\fenci_result.txt',sep='\t',index=True)
+# # print(data_new)
+
+# ===============================================================================
+# data_new = pd.read_excel("F:\\python\\PaperCode\\outputfu_4-1.xlsx")
+# # print(data_new)
+# data_new.drop(['exo_circ_ID','CircRNA'], axis = 1, inplace = True)
+# # print(data_new)
+# zero_num = (data_new == 0).astype(int).sum(axis=1)
+# pd.options.display.max_rows = 300#显示300行
+# print(zero_num)
+
+
+
+
+
