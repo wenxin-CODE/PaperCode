@@ -9,3 +9,4 @@ python1 is the model,without changing
 
 python is my graduation thesis`s code,which is about RNA-Disease relations.
 
+utils is data process about paper
