@@ -1,0 +1,635 @@
+import argparse
+import glob
+import importlib
+import os
+import numpy as np
+import shutil
+import torch
+
+from data import load_data, get_subject_files
+from model import Model
+from minibatching import iterate_batch_multiple_seq_minibatches
+from utils import print_n_samples_each_class, load_seq_ids
+from logger import get_logger
+import operator
+import math
+
+def train(
+    args,
+    config_file,
+    fold_idx,
+    output_dir,
+    log_file,
+    restart=False,
+    random_seed=42,
+):
+    spec = importlib.util.spec_from_file_location("*", config_file)
+    config = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config)
+    config = config.train
+
+    # Create output directory for the specified fold_idx
+    output_dir = os.path.join(output_dir, str(fold_idx))
+    if restart:
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+        os.makedirs(output_dir)
+    else:
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+    # Create logger
+    logger = get_logger(log_file, level="info")
+    loggers = get_logger(os.path.join(output_dir, f'train_loss.log'), level="info")
+
+    subject_files = glob.glob(os.path.join(config["data_dir"], "*.npz"))
+    subject_files.sort()
+    # Load subject IDs
+    fname = "{}.txt".format(config["dataset"])
+    # fname = "/home/denglongyan/papercode/MySleep/mass.txt"
+    seq_sids = load_seq_ids(fname)
+    logger.info("===============================================================================================================")
+    logger.info("Load generated SIDs from {}".format(fname))
+    # logger.info("SIDs ({}): {}".format(len(seq_sids), seq_sids))
+
+    # Split training and test sets
+    fold_pids = np.array_split(seq_sids, config["n_folds"])
+
+    test_sids = fold_pids[fold_idx]
+    train_sids = np.setdiff1d(seq_sids, test_sids)
+
+    # Further split training set as validation set (10%)
+    # 训练集抽取10%，作为验证集
+    n_valids = round(len(train_sids) * 0.10)
+
+    # Set random seed to control the randomness
+    # 修改=================================================================================
+    np.random.seed(random_seed)
+    valid_sids = np.random.choice(train_sids, size=n_valids, replace=False)
+    train_sids = np.setdiff1d(train_sids, valid_sids)
+    logger.info("train ids{}".format(train_sids))
+    logger.info("valid ids{}".format(valid_sids))
+    logger.info("test ids{}".format(test_sids))
+
+
+    #==================== Get corresponding files
+    train_files = []
+    for sid in train_sids:
+        train_files.append(get_subject_files(
+            dataset=config["dataset"],
+            files=subject_files,
+            sid=sid,
+        ))
+    train_files = np.hstack(train_files)
+    train_x, train_y, _ = load_data(train_files)
+
+    valid_files = []
+    for sid in valid_sids:
+        valid_files.append(get_subject_files(
+            dataset=config["dataset"],
+            files=subject_files,
+            sid=sid,
+        ))
+    valid_files = np.hstack(valid_files)
+    valid_x, valid_y, _ = load_data(valid_files)
+
+    test_files = []
+    for sid in test_sids:
+        test_files.append(get_subject_files(
+            dataset=config["dataset"],
+            files=subject_files,
+            sid=sid,
+        ))
+    test_files = np.hstack(test_files)
+    test_x, test_y, _ = load_data(test_files)
+
+    #======================== Force to use 1.5 only for N1
+    if config.get('weighted_cross_ent') is None:
+        config['weighted_cross_ent'] = False
+        logger.info(f'  Weighted cross entropy: Not specified --> default: {config["weighted_cross_ent"]}')
+    else:
+        logger.info(f'  Weighted cross entropy: {config["weighted_cross_ent"]}')
+    if config['weighted_cross_ent']:
+        config["class_weights"] = np.asarray([1., 1.5, 1., 1., 1.], dtype=np.float32)
+    else:
+        config["class_weights"] = np.asarray([1., 1., 1., 1., 1.], dtype=np.float32)
+    logger.info(f'  Weighted cross entropy: {config["class_weights"]}')
+
+    #============================ Create a model
+    device = torch.device("cuda:{}".format(args.gpu) if torch.cuda.is_available() else "cpu")
+    logger.info(f'using device {args.gpu}')
+    model = Model(
+        config=config,
+        output_dir=output_dir,
+        use_rnn=True,
+        testing=False,
+        use_best=False,
+        device=device
+    )
+
+    # Data Augmentation Details
+    logger.info('Data Augmentation')
+    logger.info(f'  Sequence: {config["augment_seq"]}')
+    logger.info(f'  Signal full: {config["augment_signal_full"]}')
+
+    #================== Train using epoch scheme
+    best_acc = -1
+    best_mf1 = -1
+    update_epoch = -1
+    config["n_epochs"] = args.n_epochs
+    names = ""
+    names90=""
+    for epoch in range(model.get_current_epoch(), config["n_epochs"]):
+        # Create minibatches for training
+        # 对数据进行洗牌
+        shuffle_idx = np.random.permutation(np.arange(len(train_x)))  # shuffle every epoch is good for generalization
+        # Create augmented data
+        percent = 0.1
+        aug_train_x = np.copy(train_x)
+        aug_train_y = np.copy(train_y)
+        for i in range(len(aug_train_x)):
+            # Shift signals horizontally
+            offset = np.random.uniform(-percent, percent) * aug_train_x[i].shape[1]
+            roll_x = np.roll(aug_train_x[i], int(offset))
+            if offset < 0:
+                aug_train_x[i] = roll_x[:-1]
+                aug_train_y[i] = aug_train_y[i][:-1]
+            if offset > 0:
+                aug_train_x[i] = roll_x[1:]
+                aug_train_y[i] = aug_train_y[i][1:]
+            roll_x = None
+            assert len(aug_train_x[i]) == len(aug_train_y[i])
+        aug_minibatch_fn = iterate_batch_multiple_seq_minibatches(
+            aug_train_x,
+            aug_train_y,
+            batch_size=config["batch_size"],
+            seq_length=config["seq_length"],
+            shuffle_idx=shuffle_idx,
+            augment_seq=config['augment_seq'],
+        )
+
+        # Train, one epoch,
+        train_outs = model.train_with_dataloader(aug_minibatch_fn,logger = loggers)  # 只使用增强后的数据进行训练， 每个epoch进行一次数据增强
+        # Create minibatches for validation
+        if model.global_epoch>90:
+            files_list = os.listdir('./')
+            filter_files_list=[fn for fn in files_list if fn.endswith("pt")]
+            # preloss=0
+            test_list=[]
+            for i in range(len(filter_files_list)-1):
+                if(i==0):
+                    continue
+                model.tsn = torch.load(filter_files_list[i+1]);
+
+                valid_minibatch_fn = iterate_batch_multiple_seq_minibatches(
+                    valid_x,
+                    valid_y,
+                    batch_size=config["batch_size"],
+                    seq_length=config["seq_length"],
+                    shuffle_idx=None,
+                    augment_seq=False,
+                )
+                test_outs = model.evaluate_with_dataloader(valid_minibatch_fn)
+                test_list.append(test_outs["test/accuracy"])
+
+            # 找最大的acc，使用其对应的模型
+            length = len(test_list)
+            if length != 0:
+                idx, max_number = max(enumerate(test_list), key=operator.itemgetter(1))
+                model.tsn=torch.load(filter_files_list[idx+1])
+                logger.info("idx is {},max is {}".format(idx,max_number))
+            # 模拟退火降温
+            if model.T > model.Tf:
+                model.T = 100-math.pow(((100-model.global_epoch)),2)
+
+        # 删掉前面保存的模型
+        my_path = './'
+        for file_name in os.listdir(my_path):
+            if file_name.endswith('.pt'):
+                os.remove(my_path + file_name)
+
+        # Create minibatches for validation
+        valid_minibatch_fn = iterate_batch_multiple_seq_minibatches(
+            valid_x,
+            valid_y,
+            batch_size=config["batch_size"],
+            seq_length=config["seq_length"],
+            shuffle_idx=None,
+            augment_seq=False,
+        )
+        valid_outs = model.evaluate_with_dataloader(valid_minibatch_fn)
+        if model.global_epoch>90:
+            if best_acc < valid_outs["test/accuracy"] and \
+            best_mf1 <= valid_outs["test/f1_score"]:
+                if not os.path.exists(model.best_ckpt_path):
+                    os.makedirs(model.best_ckpt_path)
+                best_acc = valid_outs["test/accuracy"]
+                best_mf1 = valid_outs["test/f1_score"]
+                names = os.path.join(model.best_ckpt_path,"model"+".pt")
+                torch.save(model.tsn,names)
+
+        if model.global_epoch==80:
+            if best_acc < valid_outs["test/accuracy"] and \
+            best_mf1 <= valid_outs["test/f1_score"]:
+                if not os.path.exists(model.best_ckpt_path):
+                    os.makedirs(model.best_ckpt_path)
+                best_acc = valid_outs["test/accuracy"]
+                best_mf1 = valid_outs["test/f1_score"]
+                names90 = os.path.join(model.best_ckpt_path,"model90"+".pt")
+                torch.save(model.tsn,names90)
+
+        writer = model.train_writer
+        writer.add_scalar(tag="e_losses/train", scalar_value=train_outs["train/loss"], global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_losses/valid", scalar_value=valid_outs["test/loss"], global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_losses/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_accuracy/train", scalar_value=train_outs["train/accuracy"], global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_accuracy/valid", scalar_value=valid_outs["test/accuracy"], global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_accuracy/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_f1_score/train", scalar_value=train_outs["train/f1_score"], global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_f1_score/valid", scalar_value=valid_outs["test/f1_score"], global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_f1_score/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+
+        logger.info("[e{}/{} s{}] TR (n={}) l={:.4f} a={:.1f} f1={:.1f} ({:.1f}s)| "
+                    "VA (n={}) l={:.4f} a={:.1f}, f1={:.1f} ({:.1f}s) | ".format(
+            epoch+1,
+            config["n_epochs"],
+            train_outs["global_step"],
+            len(train_outs["train/trues"]),
+            train_outs["train/loss"],
+            train_outs["train/accuracy"] * 100,
+            train_outs["train/f1_score"] * 100,
+            train_outs["train/duration"],
+
+            len(valid_outs["test/trues"]),
+            valid_outs["test/loss"],
+            valid_outs["test/accuracy"] * 100,
+            valid_outs["test/f1_score"] * 100,
+            valid_outs["test/duration"],
+
+            )
+        )
+
+        if(epoch==99):
+            test_minibatch_fn = iterate_batch_multiple_seq_minibatches(
+                test_x,
+                test_y,
+                batch_size=config["batch_size"],
+                seq_length=config["seq_length"],
+                shuffle_idx=None,
+                augment_seq=False,
+            )
+            # 测试最后一个epoch的模型
+            test_outs = model.evaluate_with_dataloader(test_minibatch_fn)
+            writer = model.train_writer
+            writer.add_scalar(tag="e_losses/test", scalar_value=test_outs["test/loss"], global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_losses/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_accuracy/test", scalar_value=test_outs["test/accuracy"], global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_accuracy/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_f1_score/test", scalar_value=test_outs["test/f1_score"], global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_f1_score/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+
+            logger.info(
+                        "[e{}/{} s{}] TE (n={}) l={:.4f} a={:.1f}, f1={:.1f} ({:.1f}s)".format(
+                epoch+1,
+                config["n_epochs"],
+                train_outs["global_step"],
+
+                len(test_outs["test/trues"]),
+                test_outs["test/loss"],
+                test_outs["test/accuracy"] * 100,
+                test_outs["test/f1_score"] * 100,
+                test_outs["test/duration"],
+                )
+            )
+            logger.info(">> Confusion Matrix")
+            logger.info(test_outs["test/cm"])
+
+            best_minibatch_fn = iterate_batch_multiple_seq_minibatches(
+                test_x,
+                test_y,
+                batch_size=config["batch_size"],
+                seq_length=config["seq_length"],
+                shuffle_idx=None,
+                augment_seq=False,
+            )
+            model.tsn = torch.load(os.path.join(model.best_ckpt_path,"model"+".pt"));
+            # 测试100个epoch中最好的模型
+            best_outs = model.evaluate_with_dataloader(best_minibatch_fn)
+            writer = model.train_writer
+            writer.add_scalar(tag="e_losses/test", scalar_value=best_outs["test/loss"], global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_losses/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_accuracy/test", scalar_value=best_outs["test/accuracy"], global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_accuracy/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_f1_score/test", scalar_value=best_outs["test/f1_score"], global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_f1_score/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+
+            logger.info(
+                        "[e{}/{} s{}] TE (n={}) l={:.4f} a={:.1f}, f1={:.1f} ({:.1f}s)".format(
+                epoch+1,
+                config["n_epochs"],
+                train_outs["global_step"],
+
+                len(best_outs["test/trues"]),
+                best_outs["test/loss"],
+                best_outs["test/accuracy"] * 100,
+                best_outs["test/f1_score"] * 100,
+                best_outs["test/duration"],
+                )
+            )
+            logger.info(">> Confusion Matrix")
+            logger.info(best_outs["test/cm"])
+
+
+# without 模拟退火
+def train_NSA(
+    args,
+    config_file,
+    fold_idx,
+    output_dir,
+    log_file,
+    restart=False,
+    random_seed=42,
+):
+    spec = importlib.util.spec_from_file_location("*", config_file)
+    config = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config)
+    config = config.train
+
+    # Create output directory for the specified fold_idx
+    output_dir = os.path.join(output_dir, str(fold_idx))
+    if restart:
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+        os.makedirs(output_dir)
+    else:
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+    # Create logger
+    logger = get_logger(log_file, level="info")
+    loggers = get_logger(os.path.join(output_dir, f'train_loss.log'), level="info")
+
+    subject_files = glob.glob(os.path.join(config["data_dir"], "*.npz"))
+    subject_files.sort()
+    # Load subject IDs
+    fname = "{}.txt".format(config["dataset"])
+    # fname = "/home/denglongyan/papercode/MySleep/mass.txt"
+    seq_sids = load_seq_ids(fname)
+    logger.info("===============================================================================================================")
+    logger.info("Load generated SIDs from {}".format(fname))
+
+    # Split training and test sets
+    fold_pids = np.array_split(seq_sids, config["n_folds"])
+
+    test_sids = fold_pids[fold_idx]
+    train_sids = np.setdiff1d(seq_sids, test_sids)
+
+    # Further split training set as validation set (10%)
+    # 训练集抽取10%，作为验证集
+    n_valids = round(len(train_sids) * 0.10)
+
+    # Set random seed to control the randomness
+    # 修改=================================================================================
+    np.random.seed(random_seed)
+    valid_sids = np.random.choice(train_sids, size=n_valids, replace=False)
+    train_sids = np.setdiff1d(train_sids, valid_sids)
+    logger.info("train ids{}".format(train_sids))
+    logger.info("valid ids{}".format(valid_sids))
+    logger.info("test ids{}".format(test_sids))
+
+    # 测试输入
+    # train_files = subject_files[:272]
+    # train_files = np.hstack(train_files)
+    # train_x, train_y, _ = load_data(train_files)
+
+    # print(valid_sids)
+    # valid_files = subject_files[272:301]
+    # valid_files = np.hstack(valid_files)
+    # valid_x, valid_y, _ = load_data(valid_files)
+
+    # print(test_sids)
+    # test_files = subject_files[301:]
+    # test_files = np.hstack(test_files)
+    # test_x, test_y, _ = load_data(test_files)
+    #==================== Get corresponding files
+    train_files = []
+    for sid in train_sids:
+        train_files.append(get_subject_files(
+            dataset=config["dataset"],
+            files=subject_files,
+            sid=sid,
+        ))
+    train_files = np.hstack(train_files)
+    train_x, train_y, _ = load_data(train_files)
+
+    valid_files = []
+    for sid in valid_sids:
+        valid_files.append(get_subject_files(
+            dataset=config["dataset"],
+            files=subject_files,
+            sid=sid,
+        ))
+    valid_files = np.hstack(valid_files)
+    valid_x, valid_y, _ = load_data(valid_files)
+
+    test_files = []
+    for sid in test_sids:
+        test_files.append(get_subject_files(
+            dataset=config["dataset"],
+            files=subject_files,
+            sid=sid,
+        ))
+    test_files = np.hstack(test_files)
+    test_x, test_y, _ = load_data(test_files)
+
+
+    #======================== Force to use 1.5 only for N1
+    if config.get('weighted_cross_ent') is None:
+        config['weighted_cross_ent'] = False
+        logger.info(f'  Weighted cross entropy: Not specified --> default: {config["weighted_cross_ent"]}')
+    else:
+        logger.info(f'  Weighted cross entropy: {config["weighted_cross_ent"]}')
+    if config['weighted_cross_ent']:
+        config["class_weights"] = np.asarray([1., 1.5, 1., 1., 1.], dtype=np.float32)
+    else:
+        config["class_weights"] = np.asarray([1., 1., 1., 1., 1.], dtype=np.float32)
+    logger.info(f'  Weighted cross entropy: {config["class_weights"]}')
+
+    #============================ Create a model
+    device = torch.device("cuda:{}".format(args.gpu) if torch.cuda.is_available() else "cpu")
+    logger.info(f'using device {args.gpu}')
+    model = Model(
+        config=config,
+        output_dir=output_dir,
+        use_rnn=True,
+        testing=False,
+        use_best=False,
+        device=device
+    )
+
+    # Data Augmentation Details
+    logger.info('Data Augmentation')
+    logger.info(f'  Sequence: {config["augment_seq"]}')
+    logger.info(f'  Signal full: {config["augment_signal_full"]}')
+
+    #================== Train using epoch scheme
+    best_acc = -1
+    best_mf1 = -1
+    update_epoch = -1
+    config["n_epochs"] = args.n_epochs
+    names = ""
+    names90=""
+    for epoch in range(model.get_current_epoch(), config["n_epochs"]):
+        # Create minibatches for training
+        # 对数据进行洗牌
+        shuffle_idx = np.random.permutation(np.arange(len(train_x)))  # shuffle every epoch is good for generalization
+        # Create augmented data
+        percent = 0.1
+        aug_train_x = np.copy(train_x)
+        aug_train_y = np.copy(train_y)
+        for i in range(len(aug_train_x)):
+            # Shift signals horizontally
+            offset = np.random.uniform(-percent, percent) * aug_train_x[i].shape[1]
+            roll_x = np.roll(aug_train_x[i], int(offset))
+            if offset < 0:
+                aug_train_x[i] = roll_x[:-1]
+                aug_train_y[i] = aug_train_y[i][:-1]
+            if offset > 0:
+                aug_train_x[i] = roll_x[1:]
+                aug_train_y[i] = aug_train_y[i][1:]
+            roll_x = None
+            assert len(aug_train_x[i]) == len(aug_train_y[i])
+        aug_minibatch_fn = iterate_batch_multiple_seq_minibatches(
+            aug_train_x,
+            aug_train_y,
+            batch_size=config["batch_size"],
+            seq_length=config["seq_length"],
+            shuffle_idx=shuffle_idx,
+            augment_seq=config['augment_seq'],
+        )
+
+        # Train, one epoch,
+        train_outs = model.train_with_dataloader_NSA(aug_minibatch_fn,logger = loggers)  # 只使用增强后的数据进行训练， 每个epoch进行一次数据增强
+        # Create minibatches for validation
+
+        # Create minibatches for validation
+        valid_minibatch_fn = iterate_batch_multiple_seq_minibatches(
+            valid_x,
+            valid_y,
+            batch_size=config["batch_size"],
+            seq_length=config["seq_length"],
+            shuffle_idx=None,
+            augment_seq=False,
+        )
+        valid_outs = model.evaluate_with_dataloader(valid_minibatch_fn)
+
+        writer = model.train_writer
+        writer.add_scalar(tag="e_losses/train", scalar_value=train_outs["train/loss"], global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_losses/valid", scalar_value=valid_outs["test/loss"], global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_losses/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_accuracy/train", scalar_value=train_outs["train/accuracy"], global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_accuracy/valid", scalar_value=valid_outs["test/accuracy"], global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_accuracy/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_f1_score/train", scalar_value=train_outs["train/f1_score"], global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_f1_score/valid", scalar_value=valid_outs["test/f1_score"], global_step=train_outs["global_step"])
+        writer.add_scalar(tag="e_f1_score/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+
+        logger.info("[e{}/{} s{}] TR (n={}) l={:.4f} a={:.1f} f1={:.1f} ({:.1f}s)| "
+                    "VA (n={}) l={:.4f} a={:.1f}, f1={:.1f} ({:.1f}s) | ".format(
+                    # "TE (n={}) l={:.4f} a={:.1f}, f1={:.1f} ({:.1f}s)".format(
+            epoch+1,
+            config["n_epochs"],
+            train_outs["global_step"],
+            len(train_outs["train/trues"]),
+            train_outs["train/loss"],
+            train_outs["train/accuracy"] * 100,
+            train_outs["train/f1_score"] * 100,
+            train_outs["train/duration"],
+
+            len(valid_outs["test/trues"]),
+            valid_outs["test/loss"],
+            valid_outs["test/accuracy"] * 100,
+            valid_outs["test/f1_score"] * 100,
+            valid_outs["test/duration"],
+
+            )
+        )
+
+        # Check best model
+        if best_acc < valid_outs["test/accuracy"] and \
+           best_mf1 <= valid_outs["test/f1_score"]:
+            best_acc = valid_outs["test/accuracy"]
+            best_mf1 = valid_outs["test/f1_score"]
+            update_epoch = epoch+1
+            torch.save(model.tsn,"best_acc.pt")
+
+        
+        if(epoch==99):
+            model.tsn = torch.load("best_acc.pt")
+            logger.info("test result:")
+            test_minibatch_fn = iterate_batch_multiple_seq_minibatches(
+                test_x,
+                test_y,
+                batch_size=config["batch_size"],
+                seq_length=config["seq_length"],
+                shuffle_idx=None,
+                augment_seq=False,
+            )
+            test_outs = model.evaluate_with_dataloader(test_minibatch_fn)
+            writer = model.train_writer
+            writer.add_scalar(tag="e_losses/test", scalar_value=test_outs["test/loss"], global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_losses/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_accuracy/test", scalar_value=test_outs["test/accuracy"], global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_accuracy/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_f1_score/test", scalar_value=test_outs["test/f1_score"], global_step=train_outs["global_step"])
+            writer.add_scalar(tag="e_f1_score/epoch", scalar_value=epoch + 1, global_step=train_outs["global_step"])
+
+            logger.info(
+                        "[e{}/{} s{}] TE (n={}) l={:.4f} a={:.1f}, f1={:.1f} ({:.1f}s)".format(
+                epoch+1,
+                config["n_epochs"],
+                train_outs["global_step"],
+
+                len(test_outs["test/trues"]),
+                test_outs["test/loss"],
+                test_outs["test/accuracy"] * 100,
+                test_outs["test/f1_score"] * 100,
+                test_outs["test/duration"],
+                )
+            )
+            logger.info(">> Confusion Matrix")
+            logger.info(test_outs["test/cm"])
+
+            best_minibatch_fn = iterate_batch_multiple_seq_minibatches(
+                test_x,
+                test_y,
+                batch_size=config["batch_size"],
+                seq_length=config["seq_length"],
+                shuffle_idx=None,
+                augment_seq=False,
+            )
+            
+
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config_file", type=str, default="./config/sleepedf.py")
+    parser.add_argument("--fold_idx", type=int, default=11)
+    parser.add_argument("--output_dir", type=str, default="./out_sleepedf/train")
+    parser.add_argument("--restart", dest="restart", action="store_true")
+    parser.add_argument("--no-restart", dest="restart", action="store_false")
+    parser.add_argument("--log_file", type=str, default="./out_sleepedf/output.log")
+    parser.add_argument("--random_seed", type=int, default=42)
+    parser.add_argument("--gpu", type=int, default=0)
+    parser.add_argument("--n_epochs", type=int, default=100)
+    parser.set_defaults(restart=False)
+    args = parser.parse_args()
+
+    train(
+        args=args,
+        config_file=args.config_file,
+        fold_idx=11,
+        output_dir=args.output_dir,
+        log_file=args.log_file,
+        restart=True,
+        random_seed=args.random_seed,
+    )
+
